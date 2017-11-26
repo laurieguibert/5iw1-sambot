@@ -1,81 +1,74 @@
-/**
- * Created by lguib on 12/09/2017.
- */
-var restify = require('restify');
-var botbuilder = require ('botbuilder');
+const restify = require('restify');
+const botbuilder = require('botbuilder');
+const axios = require('axios');
+const truncate = require('truncate');
+const dateFormat = require('dateformat');
 
-// setup restify server
-
-var server = restify.createServer();
-server.listen(process.env.port || process.env.PORT || 3987, function(){
+// Setup restify server
+const server = restify.createServer();
+server.listen(process.env.port || process.env.PORT || 3978, function(){
     console.log('%s bot started at %s', server.name, server.url);
 });
 
-// create chat connector
-var connector = new botbuilder.ChatConnector({
+// Create chat connector
+const connector = new botbuilder.ChatConnector({
     appId: process.env.APP_ID,
     appPassword: process.env.APP_SECRET
 });
 
-// Listening for user inputs
+// Listening for user input
 server.post('/api/messages', connector.listen());
 
-// Reply by echoing
 var bot = new botbuilder.UniversalBot(connector, function(session){
-    //session.send('you have tapped : ${session.message.text} | [length : ${session.message.text.length}');
-    session.send(`Vous avez écrit : %s | [longueur du texte : %s]`, session.message.text, session.message.text.length);
-    /*session.send(JSON.stringify(session.dialogData));
-    session.send(JSON.stringify(session.sessionState));
-    session.send(JSON.stringify(session.conversationData));
-    session.send(JSON.stringify(session.userData));*/
+    session.send("Hmmm.. I didn't understand that. Can you say it differently") 
+});
 
-    bot.on('typing', function(){
-        session.send("Utilisateur en train decrire");
-    });
+const luisEndpoint = 'https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/23f9a52a-8a5e-41bd-8d14-95bba2f4b940?subscription-key=57376ff9997147ba877ca8894ddd3dbb&verbose=true&timezoneOffset=0&q=';
+var recognizer = new botbuilder.LuisRecognizer(luisEndpoint);
+bot.recognizer(recognizer);
 
-    bot.on('conversationUpdate', function(message) {
-        if(message.membersAdded && message.membersAdded.length > 0){
-            var membersAdded = message.membersAdded
-            .map(function(x){
-                var isSelf = x.id === message.address.bot.id;
-                return (isSelf ? message.address.bot.name : x.name) || ' ' + '(Id = ' + x.id + ')'
-            })
-            .join(', ');
-            bot.send(new botbuilder.Message()
-            .address(message.address)
-            .text('Bienvenue ' + membersAdded));
-        }
+var start_url = 'https://www.eventbriteapi.com/v3/'
+var user_token = '6KAACOLJPUJMIKMB43E7'
 
-        if(message.membersRemoved && message.membersRemoved.length > 0){
-            var membersRemoved = message.membersRemoved
-            .map(function(x){
-                var isSelf = x.id === message.address.bot.id;
-                return (isSelf ? message.address.bot.id : x.id) || ' ' + '(Id = ' + x.id + ')'
-            })
-            .join(', ');
-            bot.send(new botbuilder.Message()
-            .address(message.address)
-            .text('Au revoir ' + membersRemoved));
-        }
-    });
+bot.dialog('Greeting', [
+    function (session, args, next) {
+        axios.get(start_url + 'users/me/?token=' + user_token)
+        .then(response => {
+            session.send('Hi '+ response.data.name +', nice to see you');
+            session.endDialog("My name is Sambot, I'm here to help you to find an idea of activity. What can I do for you ?");
+        })
+        .catch(error => {
+          console.log(error);
+        });
+    }
+]).triggerAction({
+    matches: 'Greeting'
+});
 
-    bot.on('contactRelationUpdate', function(message){
-        if(message.action === 'add'){
-            var response = 'Bienvenue ';
-        }
-
-        if(message.action === 'remove'){
-            var response = 'Au revoir ';
-        }
-
-        bot.send(new botbuilder.Message()
-        .address(message.address)
-        .text(response + message.address.bot.name + '-' + message.address.bot.id));
-    })
-
-    bot.on('endOfConversation', function(message){
-        bot.send(new botbuilder.Message()
-        .address(message.address)
-        .text("La conversation est maintenant terminée"));
-    })
+bot.dialog('Events', [
+    function (session, args, next) {
+        axios.get(start_url + 'events/search/?token=' +  user_token)
+        .then(response => {
+            var msg = new botbuilder.Message(session);
+            msg.attachmentLayout(botbuilder.AttachmentLayout.carousel)
+            events_array = [] 
+            response.data.events.forEach(function(value){
+                events_array.push(
+                    new botbuilder.HeroCard(session)
+                    .title(truncate(value.description.text, 38))
+                    .subtitle(dateFormat(value.start.utc, "dddd, mmmm dS yyyy, h:MM TT") +", "+ value.start.timezone )
+                    .text(truncate(value.description.text, 300))
+                    .images([botbuilder.CardImage.create(session, value.logo.url)])
+                    .text()
+                );
+            });
+            msg.attachments(events_array);
+            session.send(msg).endDialog();
+        })
+        .catch(error => {
+          console.log("err: "+ error);
+        });
+    }
+]).triggerAction({
+    matches: 'Events'
 });

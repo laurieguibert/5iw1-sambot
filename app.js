@@ -191,22 +191,30 @@ bot.dialog('Weather', [
         session.dialogData = {};
         var event_id = args.intent.matched.input
         var hash = JSON.parse("[{" + event_id.substring(event_id.lastIndexOf("{")+1,event_id.lastIndexOf("}")) + "}]")
+        // Connexion to eventbrite API and get the event
         axios.get(start_url + 'events/'+ hash[0].id+'/?expand=venue&token=' +  session.userData.token)
         .then(response => {
+            // Explode date and time and format them
             var start_date = new Date(response.data.start.utc);
             var month = start_date.getUTCMonth() + 1;
             var day = start_date.getUTCDate();
             var year = start_date.getUTCFullYear();
             var time = Date.parse(month + " " + day + ", " +year) - Date.parse((new Date).getUTCMonth() + " " + (new Date).getUTCDate() + ", " +(new Date).getUTCFullYear());
+            
             session.dialogData.event_name = response.data.name.text;
+
             if ( typeof response.data.venue !== 'undefined' && response.data.venue )
             {
+                // Get latitude, longitude and date
                 session.dialogData.latitude = response.data.venue.address.latitude;
                 session.dialogData.longitude = response.data.venue.address.longitude;
                 session.dialogData.time = time.toString().slice(0,8);
+
+                // Connexion to darksky API and get the weather
                 axios.get(' https://api.darksky.net/forecast/'+process.env.DARKSKY_CLIENT_ID+'/'+session.dialogData.latitude+','+session.dialogData.latitude+','+session.dialogData.time+'?exclude=currently,flags')
                 .then(response => {
                     var image_url
+                    // Get right icon (svg) for the weather
                     switch(response.data.daily.data[0].icon) {
                         case 'clear-day':
                             image_url = 'https://www.amcharts.com/wp-content/themes/amcharts2/css/img/icons/weather/animated/day.svg'
@@ -240,6 +248,8 @@ bot.dialog('Weather', [
                             break;
                     }
                     var msg = new botbuilder.Message(session) 
+                    
+                    // Create thumbnail card
                     .attachments([ 
                         new botbuilder.ThumbnailCard(session) 
                         .title('Weather forecast for '+session.dialogData.event_name)
@@ -254,6 +264,7 @@ bot.dialog('Weather', [
                     console.log("err: "+ error);
                 });
             } else {
+                // if there is no response from eventbrite API, send an error
                 session.endDialog('Sorry, I can\'t find weather forecast for this event');
             }  
         })
